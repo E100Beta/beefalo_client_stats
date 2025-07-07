@@ -1,10 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
   "runtime": {
-    "version": "LuaJIT"
+    "version": "Lua 5.4"
   },
   "diagnostics": {
-    "globals": ["GLOBAL", "TUNING"],
+    "globals": ["GLOBAL", "TUNING", "ThePlayer", "GetTime", "TheSim", "Remap", "Class"],
     "globalsRegex": [".*PostInit", ".*PostConstruct"]
   }
 }
