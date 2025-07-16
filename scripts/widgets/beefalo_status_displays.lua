@@ -15,11 +15,22 @@ local function RideSetPercent(self, val, max, bonus)
     self:OldSetPercent(val / max, max, bonus)
     local minutes = math.floor(val / 60)
     local seconds = math.ceil(val % 60)
-    if minutes == 0 then
+    if val < 0 then
+        self.num:SetString("--:--")
+    elseif minutes == 0 then
         self.num:SetString(string.format("%d", seconds))
     else
         self.num:SetString(string.format("%d:%02d", minutes, seconds))
     end
+end
+local function UpdateTimer(_, self)
+    -- Sometimes task doesn't cancel in time
+    if self.timer.val == nil or self.timer.max == nil then
+        self.timer:SetPercent(0, 1)
+        return
+    end
+    self.timer.val = self.timer.val - 1
+    self.timer:SetPercent(self.timer.val, self.timer.max)
 end
 
 local BeefaloStatusDisplays = Class(Widget, function(self, owner)
@@ -45,7 +56,11 @@ local BeefaloStatusDisplays = Class(Widget, function(self, owner)
         widget:SetPercent(data.new, 100)
     end, self.domestication)
     self.on_domestication_change_fn = function(self, data)
+        if data.new == 1 then
+            self.domestication:Hide()
+        end
         self.domestication:SetPercent(data.new, 100)
+        self.domestication.num:SetString(string.format("%.1f", data.new * 100))
     end
 
     -- If you google obedience, you may find a LOT of images with brown backgrounds, for some reason
@@ -75,18 +90,13 @@ local BeefaloStatusDisplays = Class(Widget, function(self, owner)
             self.timer.val = data.ridetime
             self.timer.max = data.ridetime
             self.timer:SetPercent(data.ridetime, data.ridetime)
-            self.timer.timer_task = self.inst:DoPeriodicTask(1, function(inst, self)
-                -- Sometimes task doesn't cancel in time
-                if self.timer.val == nil or self.timer.max == nil then
-                    self.timer:SetPercent(0, 1)
-                    return
-                end
-                self.timer.val = self.timer.val - 1
-                self.timer:SetPercent(self.timer.val, self.timer.max)
-            end, 0, self)
+            if self.timer.timer_task == nil then
+                self.timer.timer_task = self.inst:DoPeriodicTask(1, UpdateTimer, 0, self)
+            end
             self.timer:Show()
         else
             self.timer.timer_task:Cancel()
+            self.timer.timer_task = nil
             self.timer.val = nil
             self.timer.max = nil
             self.timer:SetPercent(0, 1)

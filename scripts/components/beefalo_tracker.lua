@@ -3,7 +3,6 @@ local scrapbook_data = require("screens/redux/scrapbookdata")
 local BUILDS = {}
 
 local DECAY_TASK_PERIOD = 10
-local PERMISSIBLE_DOMESTICATION_ERROR = 0.03
 
 -----------------------------------------------------
 -- UTILITY
@@ -46,7 +45,7 @@ local function GetTendency(beefalo)
 end
 
 local function AnimationIn(inst, animations)
-    for i, anim in ipairs(animations) do
+    for _, anim in ipairs(animations) do
         if inst.AnimState:IsCurrentAnimation(anim) then
             return true
         end
@@ -55,11 +54,21 @@ local function AnimationIn(inst, animations)
 end
 
 local function table_tostring(t)
+    if type(t) ~= "table" then
+        return tostring(t)
+    end
     local str = ""
     for k, v in pairs(t) do
         str = str .. tostring(k) .. ": " .. tostring(v) .. ", "
     end
     return str
+end
+
+local function make_safe(filename)
+    -- exclude some problematic characters for filename serialization
+    -- still want to preserve the name itself, mb it's chinese or cyrillic
+    local res, _ = string.gsub(filename, "[()%[%]%%\\\"#/:*?!@+={}'~<>|;`^ ]", "_")
+    return res
 end
 
 -----------------------------------------------------
@@ -78,32 +87,64 @@ local BeefaloTracker = Class(function(self, inst)
     self.last_domestication_gain = 0
     self.last_update = 0
     self.start_ride = nil
+    self.config = nil
+    self.tasks = {}
 
     SetBuilds(self.inst)
 end)
 
 function BeefaloTracker:OnRemoveFromEntity()
-    self:CancelTask()
+    self:UnHookPlayer()
+end
+
+function BeefaloTracker:GetFileName()
+    return "BCS_"
+        .. (TheNet:GetSessionIdentifier() or "INVALID_SESSION")
+        .. "_"
+        .. (TheNet:GetUserID() or "INVALID_USERID")
+        .. "_"
+        .. make_safe(self.inst.name)
 end
 
 function BeefaloTracker:OnSave()
-    return {
-        hunger = self.hunger,
-        obedience = self.obedience,
-        domestication = self.domestication,
-        last_domestication_gain = self.last_domestication_gain,
-        last_update = self.last_update,
-    }
+    if self.inst.name == STRINGS.NAMES.BEEFALO then
+        -- 99% doesn't have bell associated if has default name
+    elseif
+        self.hunger == self:GetLowest("hunger")
+        and self.obedience == self:GetLowest("obedience")
+        and self.domestication == self:GetLowest("domestication")
+    then
+        TheSim:ErasePersistentString(self:GetFileName(), function(success)
+            print("BCS: beefalo 0 stats, deleting savefile success: " .. tostring(success))
+        end)
+    else
+        local data = {
+            hunger = self.hunger,
+            obedience = self.obedience,
+            domestication = self.domestication,
+            last_domestication_gain = self.last_domestication_gain,
+            last_update = self.last_update,
+        }
+        local str = json.encode(data)
+        TheSim:SetPersistentString(self:GetFileName(), str, false)
+    end
 end
 
-function BeefaloTracker:OnLoad(data, newents)
-    if data ~= nil then
-        self.hunger = data.hunger
-        self.obedience = data.obedience
-        self.domestication = data.domestication
-        self.last_domestication_gain = data.last_domestication_gain
-        self.last_update = data.last_update
-    end
+function BeefaloTracker:OnLoad()
+    TheSim:GetPersistentString(self:GetFileName(), function(success, str)
+        if success and str ~= nil then
+            local data = json.decode(str)
+            self.hunger = data.hunger
+            self.obedience = data.obedience
+            self.domestication = data.domestication
+            self.last_domestication_gain = data.last_domestication_gain
+            self.last_update = data.last_update
+        end
+    end)
+end
+
+function BeefaloTracker:SetConfig(config)
+    self.config = config
 end
 
 function BeefaloTracker:IsCurrentBeefalo()
@@ -121,10 +162,16 @@ function BeefaloTracker:GetTendency()
     return GetTendency(self.inst)
 end
 
-function UpdateStats(inst, self)
+function UpdateStats(_, self)
+    if not self:IsCurrentBeefalo() then
+        self:UnHookPlayer()
+        return
+    end
+
     local last_update = self.last_update
     local this_update = GetServerTime()
-    local dt = this_update - last_update
+    local dt = math.max(this_update - last_update, 0) -- server rollbacks
+    self.last_update = this_update
 
     -- OBEDIENCE
     local obedience_loss = TUNING.BEEFALO_DOMESTICATION_STARVE_OBEDIENCE / 2
@@ -132,41 +179,79 @@ function UpdateStats(inst, self)
         -- starving is x2 + base
         obedience_loss = obedience_loss * 3
     end
-    self:SyncObedience({ delta = obedience_loss * dt })
+    local obedience_delta = obedience_loss * dt
+    self:SyncObedience({ delta = obedience_delta })
 
     -- HUNGER
-    self:SyncHunger({ delta = -TUNING.BEEFALO_HUNGER_RATE * dt })
+    local hunger_delta = -TUNING.BEEFALO_HUNGER_RATE * dt
+    self:SyncHunger({ delta = hunger_delta })
 
     -- DOMESTICATION
-    local domestication_delta
+    local domestication_loss
     local is_riding = self.player.replica.rider:IsRiding()
     if self.hunger > 0 or is_riding then
         self.last_domestication_gain = GetServerTime()
-        domestication_delta = TUNING.BEEFALO_DOMESTICATION_GAIN_DOMESTICATION
+        domestication_loss = TUNING.BEEFALO_DOMESTICATION_GAIN_DOMESTICATION
         if is_riding and self.player.components.skilltreeupdater:HasSkillTag("beefalodomestication") then
-            domestication_delta = domestication_delta * TUNING.SKILLS.WATHGRITHR.WATHGRITHRHAT_BEEFALO_DOMESTICATION_MOD
+            domestication_loss = domestication_loss * TUNING.SKILLS.WATHGRITHR.WATHGRITHRHAT_BEEFALO_DOMESTICATION_MOD
         end
     else
         -- TODO: I'm really not sure if that's right. Doesn't line up with
         -- wiki numbers, maybe I'm missing something?
-        domestication_delta = math.min(
+        domestication_loss = math.min(
             (this_update - self.last_domestication_gain)
                 / (TUNING.BEEFALO_DOMESTICATION_MAX_LOSS_DAYS * TUNING.TOTAL_DAY_TIME),
             1
         ) * TUNING.BEEFALO_DOMESTICATION_LOSE_DOMESTICATION
     end
-    self:SyncDomestication({ delta = domestication_delta * dt })
+    local domestication_delta = domestication_loss * dt
+    self:SyncDomestication({ delta = domestication_delta })
 
-    self.last_update = this_update
+    print(
+        "BCS: update on "
+            .. tostring(math.ceil(this_update))
+            .. ": obedience "
+            .. string.format("%.1f", obedience_delta * 100)
+            .. "%, domestication "
+            .. string.format("%.1f", domestication_delta * 100)
+            .. "%, hunger "
+            .. string.format("%.1f", hunger_delta)
+    )
+
+    self:OnSave() -- idk, seems like it doesn't trigger by itself on client
+end
+
+function AnimationWatchdog(_, self)
+    -- for debug (animations gotten from beefalo stategraph)
+    -- stylua: ignore start
+    -- local animations = { "alert_pre", "atk_pre", "beg_pre", "bellow", "brush", "carrat_idle1", "carrat_idle_2", "death", "fart", "graze2_pre", "graze2_pst", "graze_loop", "hair_growth", "hair_growth_pre", "idle_loop", "intestinal_cramp", "mating_taunt1", "mating_taunt2", "revive", "run_loop", "run_pre", "run_pst", "shake", "shakesaddle_off", "shave", "skin_change", "transform", "vomit", "walk_loop", "walk_pst", "walk_pre" }
+    -- -- stylua: ignore end
+    -- for _, v in ipairs(animations) do
+    --     if self.inst.AnimState:IsCurrentAnimation(v) then
+    --         print("BCS: animation after feeding: " .. v)
+    --     end
+    -- end
+    -- actual logic
+    if self.inst.AnimState:IsCurrentAnimation("shakesaddle_off") then
+        print("BCS: shook off saddle")
+        self:SyncObedience({ highest = TUNING.BEEFALO_KEEP_SADDLE_OBEDIENCE })
+    elseif AnimationIn(self.inst, { "beg_pre", "beg", "beg_pst" }) then
+        print("BCS: beefalo begged")
+        self:SyncHunger({ highest = TUNING.BEEFALO_HUNGER * TUNING.BEEFALO_BEG_HUNGER_PERCENT })
+    end
+    self.tasks.animation_watcher.period = self:NextAnimTime()
 end
 
 function BeefaloTracker:StartTask()
-    self.decaytask = self.inst:DoPeriodicTask(DECAY_TASK_PERIOD, UpdateStats, 0, self)
+    self.tasks.update = self.inst:DoPeriodicTask(DECAY_TASK_PERIOD, UpdateStats, 0, self)
+    if self.config.animation_tracking == "AGGRESSIVE" and not self.inst:HasTag("domesticated") then
+        self.tasks.animation_watcher = self.inst:DoPeriodicTask(self:NextAnimTime() or 0, AnimationWatchdog, 0, self)
+    end
 end
 
 function BeefaloTracker:CancelTask()
-    if self.decaytask ~= nil then
-        self.decaytask:Cancel()
+    for _, task in pairs(self.tasks) do
+        task:Cancel()
     end
 end
 
@@ -181,8 +266,6 @@ function BeefaloTracker:GetLowest(stat)
     if stat == "hunger" then
         return 0
     elseif stat == "domestication" then
-        -- don't care about domestication after domesticating
-        -- TODO: care
         if self.inst:HasTag("domesticated") then
             return 1
         else
@@ -266,39 +349,80 @@ function BeefaloTracker:GetRideTime()
     end
     local time = Remap(self.domestication, 0, 1, TUNING.BEEFALO_MIN_BUCK_TIME, TUNING.BEEFALO_MAX_BUCK_TIME)
     local mult = self:GetRideMult()
+    local final_time = time * mult - (GetServerTime() - self.start_ride)
 
-    return math.max(time * mult - (GetServerTime() - self.start_ride), 0)
+    return math.max(final_time, 0)
+end
+
+function BeefaloTracker:NextAnimTime()
+    return self.inst.AnimState:GetCurrentAnimationLength() - self.inst.AnimState:GetCurrentAnimationTime() + FRAMES
+end
+
+function BeefaloTracker:CheckAnimationAfterFeed()
+    -- Define task locally beacause there are sometimes race conditions,
+    -- this ensures the closure captures its task
+    local task
+    task = self.inst:DoPeriodicTask(self:NextAnimTime(), function(inst, _)
+        if self.player == nil then
+            -- Sometimes component "loses" its task and it doesn't get cleaned up
+            return
+        end
+        if inst.AnimState:IsCurrentAnimation("graze_loop") then
+            -- still eating
+            self.tasks.feed_animation.period = self:NextAnimTime()
+            return
+        elseif inst.AnimState:IsCurrentAnimation("fart") then
+            print("BCS: flatulance")
+            self:SyncHunger({ lowest = 300 })
+        elseif inst.AnimState:IsCurrentAnimation("vomit") then
+            print("BCS: regurgitation")
+            self:SyncObedience({ delta = TUNING.BEEFALO_DOMESTICATION_OVERFEED_OBEDIENCE })
+            self:SyncDomestication({ delta = TUNING.BEEFALO_DOMESTICATION_OVERFEED_DOMESTICATION })
+        else
+            if not self.player.replica.rider:IsRiding() then
+                print("BCS: nothing, probably lower hunger")
+                self:SyncHunger({ highest = 300 })
+            end
+        end
+        -- It seems like time reset happens after the animation, let's try resetting it here
+        if self.player.replica.rider:IsRiding() then
+            self:ResetRide({ start = GetServerTime() })
+        end
+        if task ~= nil then
+            task:Cancel()
+        end
+    end, 0, self)
+    self.tasks.feed_animation = task
 end
 
 function BeefaloTracker:OnPerformedSuccessDirty(player)
+    -- NOTE: sometimes lastheldaction doesn't reset for a long time
+    local last_action = player.components.playercontroller.lastheldaction
+    print("BCS: last_action: " .. tostring(last_action ~= nil and last_action.action.id or nil))
+    if last_action == nil then
+        return
+    end
+    local action = last_action.action
+    local item = last_action.invobject
+    local is_success = player.player_classified.isperformactionsuccess:value()
+
     player:DoTaskInTime(0, function(_)
-        -- NOTE: sometimes lastheldaction doesn't reset for a long time
-        local last_action = player.components.playercontroller.lastheldaction
-        if last_action == nil then
-            return
-        end
-        print("BCS: got action " .. tostring(last_action))
-
-        local action = last_action.action
-        local item = last_action.invobject
-        local is_success = player.player_classified.isperformactionsuccess:value()
-
         if
-            (action == ACTIONS.GIVE or (player.replica.rider:IsRiding() and action == ACTIONS.FEED))
-            and is_success
-            and item:HasAnyTag("edible_roughage", "edible_veggie")
+            (
+                (action == ACTIONS.GIVE and last_action.target == self.inst and is_success)
+                or (action == ACTIONS.FEED and player.replica.rider:IsRiding())
+            ) and item:HasAnyTag("edible_roughage", "edible_veggie")
         then
-            print("BCS: fed with " .. tostring(item))
+            print("BCS: fed beefalo")
             self:SyncHunger({ delta = scrapbook_data[item.prefab].hungervalue })
             self:SyncObedience({ delta = TUNING.BEEFALO_DOMESTICATION_FEED_OBEDIENCE })
-            if player.replica.rider:IsRiding() then
-                self:ResetRide({ start = GetServerTime() })
-            end
+            -- reset ride after animation?
+            self:CheckAnimationAfterFeed()
         end
 
         -- Brushing is almost almost always success because it drains durability
         if action == ACTIONS.BRUSH and self.inst.AnimState:IsCurrentAnimation("brush") then
-            print("BCS: Brushed beefalo, he likes it!")
+            print("BCS: brushed beefalo")
             self:SyncObedience({ delta = TUNING.BEEFALO_DOMESTICATION_BRUSHED_OBEDIENCE })
             self:SyncDomestication({ delta = TUNING.BEEFALO_DOMESTICATION_BRUSHED_DOMESTICATION })
         end
@@ -309,20 +433,11 @@ function BeefaloTracker:OnPerformedSuccessDirty(player)
             self:SyncObedience({ highest = 0.49 })
         end
 
-        if player.replica.combat:GetTarget() == self.inst then
-            print("BCS: CONGRATS ON -30% DOMESTICATION LMAO")
-            self:SyncDomestication({ delta = TUNING.BEEFALO_DOMESTICATION_ATTACKED_BY_PLAYER_DOMESTICATION })
-        end
-
         if action == ACTIONS.DROP and item == self.inst.replica.follower:GetLeader() then
-            self:UnHookPlayer(player)
+            print("BCS: dropped bell")
+            self:UnHookPlayer()
         end
     end)
-
-    -- TODO: check post-animations, probably inst:StartThread and Sleep?
-    -- beg_pre, beg_loop, beg_pst: probably can be used to set hunger below 168.5? Not here.
-    -- fart: can be used to sync hunger
-    -- vomit: can be used to sync hunger, also obedience and domestication
 end
 
 function BeefaloTracker:OnIsRidingDirty(player)
@@ -331,7 +446,8 @@ function BeefaloTracker:OnIsRidingDirty(player)
             self:ResetRide({ start = GetServerTime() })
             self:SyncObedience({ lowest = 0.5 })
         else
-            if AnimationIn(self.player, { "buck", "bucked", "buck_pst" }) and self.start_ride ~= nil then
+            if AnimationIn(player, { "buck", "bucked", "buck_pst" }) and self.start_ride ~= nil then
+                print("BCS: player bucked")
                 if self.inst:HasTag("domesticated") then
                     return
                 end
@@ -339,10 +455,11 @@ function BeefaloTracker:OnIsRidingDirty(player)
                 local end_ride = GetServerTime()
                 local mult = self:GetRideMult()
                 local ride_time = (end_ride - self.start_ride) / mult
-                -- / by wigfrid skill and other mults?
                 local calculated_domestication =
                     Remap(ride_time, TUNING.BEEFALO_MIN_BUCK_TIME, TUNING.BEEFALO_MAX_BUCK_TIME, 0, 1)
-                if math.abs(self.domestication - calculated_domestication) > PERMISSIBLE_DOMESTICATION_ERROR then
+                print("BCS: calculated domestication: " .. tostring(calculated_domestication))
+                -- allow for some error
+                if math.abs(self.domestication - calculated_domestication) > 0.01 then
                     self:SyncDomestication({ set = calculated_domestication })
                 end
             end
@@ -352,18 +469,22 @@ function BeefaloTracker:OnIsRidingDirty(player)
 end
 
 function BeefaloTracker:OnAttacked(player, data)
-    print("BCS: onattack data: " .. table_tostring(data))
-    if player.replica.rider:IsRiding() and data.redirected then
+    -- Yeah I also kinda didn't know that you stop losing obedience on attack after
+    -- domesticating
+    if
+        player.replica.rider:IsRiding()
+        and data.redirected
+        and (not self.inst:HasTag("domesticated") or not self:GetTendency() == "ORNERY")
+    then
         self:SyncObedience({ delta = TUNING.BEEFALO_DOMESTICATION_ATTACKED_OBEDIENCE })
     end
 end
 
 function BeefaloTracker:OnItemLose(player)
-    -- Must check every instance of this noisy event, since "dropitem" event
-    -- is not for client. Data on this event is generally useless too.
-    -- Thankfully, IsHeldBy is more than enough for our case.
-    -- But as usual it doesn't update on event so DoTaskInTime it is
     player:DoTaskInTime(0, function(_)
+        -- Must check every instance of this noisy event, since "dropitem" event
+        -- is not for client. Data on this event is generally useless too.
+        -- Thankfully, IsHeldBy is more than enough for our case.
         local bell = self.inst.replica.follower:GetLeader()
         if
             bell ~= nil
@@ -372,7 +493,8 @@ function BeefaloTracker:OnItemLose(player)
             return
         end
 
-        self:UnHookPlayer(player)
+        print("BCS: dropped bell")
+        self:UnHookPlayer()
     end)
 end
 
@@ -384,36 +506,45 @@ function BeefaloTracker:HookPlayer(player)
         print("BCS: hooking player in")
     end
 
+    if self.config.ui_show == "NEVER" and self.inst:HasTag("domesticated") then
+        print("BCS: domesticated and config to never show ui, skipping hook in")
+        return
+    elseif self.config.ui_show == "ORNERY" and self.inst:HasTag("domesticated") and self:GetTendency() ~= "ORNERY" then
+        print("BCS: domesticated not ornery and config to only show ui for ornery, skipping hook in")
+        return
+    end
+
     self.player = player
 
     -- I could've made this more clean, but eh
     self.isridingdirty_fn = function(_)
-        self:OnIsRidingDirty(player)
+        self:OnIsRidingDirty(self.player)
     end
-    player:ListenForEvent("isridingdirty", self.isridingdirty_fn)
+    self.player:ListenForEvent("isridingdirty", self.isridingdirty_fn)
 
     self.attacked_fn = function(_, data)
-        self:OnAttacked(player, data)
+        self:OnAttacked(self.player, data)
     end
-    player:ListenForEvent("attacked", self.attacked_fn)
+    self.player:ListenForEvent("attacked", self.attacked_fn)
 
     self.itemlose_fn = function(_, _)
-        self:OnItemLose(player)
+        self:OnItemLose(self.player)
     end
-    player:ListenForEvent("itemlose", self.itemlose_fn)
+    self.player:ListenForEvent("itemlose", self.itemlose_fn)
 
     self.isperformactionsuccessdirty_fn = function(_)
-        self:OnPerformedSuccessDirty(player)
+        self:OnPerformedSuccessDirty(self.player)
     end
-    player.player_classified:ListenForEvent("isperformactionsuccessdirty", self.isperformactionsuccessdirty_fn)
+    self.player.player_classified:ListenForEvent("isperformactionsuccessdirty", self.isperformactionsuccessdirty_fn)
 
     self.ui = player.HUD.controls.status.beefalostatusdisplays
     self.ui:Show()
 
-    if player.replica.rider:IsRiding() then
+    if self.player.replica.rider:IsRiding() then
         self:ResetRide({ start = GetServerTime() })
     end
 
+    self:OnLoad()
     self:StartTask()
 
     -- idea: dropitem: if dropped check if withing radius of salt lick, but syncing this is probably too hard
@@ -422,31 +553,38 @@ function BeefaloTracker:HookPlayer(player)
     -- We should probably check for a lick on both drop and pickup?
 end
 
-function BeefaloTracker:UnHookPlayer(player)
+function BeefaloTracker:UnHookPlayer()
     print("BCS: unhooking player from beefalo")
 
-    self.player = nil
-
     if self.isridingdirty_fn ~= nil then
-        player:RemoveEventCallback("isridingdirty", self.isridingdirty_fn)
+        self.player:RemoveEventCallback("isridingdirty", self.isridingdirty_fn)
+        self.isridingdirty_fn = nil
     end
 
     if self.attacked_fn ~= nil then
-        player:RemoveEventCallback("attacked", self.attacked_fn)
+        self.player:RemoveEventCallback("attacked", self.attacked_fn)
+        self.attacked_fn = nil
     end
 
     if self.itemlose_fn ~= nil then
-        player:RemoveEventCallback("itemlose", self.itemlose_fn)
+        self.player:RemoveEventCallback("itemlose", self.itemlose_fn)
+        self.itemlose_fn = nil
     end
 
     if self.isperformactionsuccessdirty_fn ~= nil then
-        player.player_classified:RemoveEventCallback("isperformactionsuccessdirty", self.isperformactionsuccessdirty_fn)
+        self.player.player_classified:RemoveEventCallback(
+            "isperformactionsuccessdirty",
+            self.isperformactionsuccessdirty_fn
+        )
+        self.isperformactionsuccessdirty_fn = nil
     end
 
     self.ui:Hide()
     self.ui = nil
+    self.player = nil
 
     self:CancelTask()
+    self:OnSave()
 end
 
 return BeefaloTracker

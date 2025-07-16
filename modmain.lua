@@ -6,6 +6,11 @@ GLOBAL.GetServerTime = function()
     return (GLOBAL.TheWorld.state.cycles + GLOBAL.TheWorld.state.time) * GLOBAL.TUNING.TOTAL_DAY_TIME
 end
 
+CONFIG = {
+    ui_show = GetModConfigData("UI_SHOW"),
+    animation_tracking = GetModConfigData("ANIMATION_TRACKING"),
+}
+
 -- All logic is inside a component that's more or less a reimplementation of
 -- components/domesticatable with some guesswork on top
 local function OnItemGet(player, data)
@@ -48,6 +53,7 @@ end)
 
 AddPrefabPostInit("beefalo", function(beefalo)
     beefalo:AddComponent("beefalo_tracker")
+    beefalo.components.beefalo_tracker:SetConfig(CONFIG)
 end)
 
 AddClassPostConstruct("widgets/statusdisplays", function(self, owner)
