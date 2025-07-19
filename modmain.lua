@@ -20,17 +20,13 @@ local function OnItemGet(player, data)
             -- NOTE: need to clearly say in tutorial that player needs beefalo on screen
             --
             -- Also yes, that would be like a 1000 times easier if leader component worked on client. We could reimplement it, but eh
-            local beefalo
             local x, y, z = player.Transform:GetWorldPosition()
-            for i, mb_beefalo in ipairs(TheSim:FindEntities(x, y, z, 60, { "beefalo" })) do
-                local mb_bell = mb_beefalo.replica.follower:GetLeader()
-                if item == mb_bell then
-                    beefalo = mb_beefalo
+            for _, beefalo in ipairs(TheSim:FindEntities(x, y, z, 60, { "beefalo" })) do
+                local bell = beefalo.replica.follower:GetLeader()
+                if item == bell and beefalo.components.beefalo_tracker.player ~= player then
+                    -- Unhooking is done inside the component because we don't have full context from outside
+                    beefalo.components.beefalo_tracker:HookPlayer(player)
                 end
-            end
-            if beefalo ~= nil and beefalo.components.beefalo_tracker.player ~= player then
-                -- Unhooking is done inside the component because we don't have full context from outside
-                beefalo.components.beefalo_tracker:HookPlayer(player)
             end
         end
     end
