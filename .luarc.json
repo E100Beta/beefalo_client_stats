@@ -4,7 +4,7 @@
     "version": "LuaJIT"
   },
   "diagnostics": {
-    "globals": ["GLOBAL", "TUNING"],
+    "globals": ["GLOBAL", "TUNING", "STRINGS", "ACTIONS"],
     "globalsRegex": [".*PostInit", ".*PostConstruct"]
   }
 }

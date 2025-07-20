@@ -13,7 +13,8 @@ local BeefaloBadge = Class(
         use_clear_bg,
         dont_update_while_paused,
         bonustint,
-        persist_num
+        persist_num,
+        scale
     )
         Badge._ctor(
             self,
@@ -28,6 +29,7 @@ local BeefaloBadge = Class(
         )
 
         self:SetPercent(0, 100)
+        self:SetScale(scale)
 
         if not iconbuild then
             self.icon = self.underNumber:AddChild(Image())
