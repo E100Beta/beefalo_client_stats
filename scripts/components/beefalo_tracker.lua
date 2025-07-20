@@ -2,7 +2,7 @@ local scrapbook_data = require("screens/redux/scrapbookdata")
 
 local BUILDS = {}
 
-local DECAY_TASK_PERIOD = 10
+local DELTA_TASK_PERIOD = 10
 
 -----------------------------------------------------
 -- UTILITY
@@ -91,9 +91,12 @@ local BeefaloTracker = Class(function(self, inst)
     self.tasks = {}
 
     SetBuilds(self.inst)
+    self.inst:ListenForEvent("onremove", function()
+        self:OnRemoveEntity()
+    end)
 end)
 
-function BeefaloTracker:OnRemoveFromEntity()
+function BeefaloTracker:OnRemoveEntity()
     self:UnHookPlayer()
 end
 
@@ -148,10 +151,13 @@ function BeefaloTracker:SetConfig(config)
 end
 
 function BeefaloTracker:IsCurrentBeefalo()
-    if self.player == nil then
+    if self.player == nil or self.inst == nil or self.inst.replica.follower == nil then
         return false
     end
     local bell = self.inst.replica.follower:GetLeader()
+    if bell == nil then
+        return false
+    end
     return bell.replica.inventoryitem:IsHeldBy(self.player)
 end
 
@@ -207,17 +213,6 @@ function UpdateStats(_, self)
     local domestication_delta = domestication_loss * dt
     self:SyncDomestication({ delta = domestication_delta })
 
-    print(
-        "BCS: update on "
-            .. tostring(math.ceil(this_update))
-            .. ": obedience "
-            .. string.format("%.1f", obedience_delta * 100)
-            .. "%, domestication "
-            .. string.format("%.1f", domestication_delta * 100)
-            .. "%, hunger "
-            .. string.format("%.1f", hunger_delta)
-    )
-
     self:OnSave() -- idk, seems like it doesn't trigger by itself on client
 end
 
@@ -243,7 +238,7 @@ function AnimationWatchdog(_, self)
 end
 
 function BeefaloTracker:StartTask()
-    self.tasks.update = self.inst:DoPeriodicTask(DECAY_TASK_PERIOD, UpdateStats, 0, self)
+    self.tasks.update = self.inst:DoPeriodicTask(DELTA_TASK_PERIOD, UpdateStats, 0, self)
     if self.config.animation_tracking == "AGGRESSIVE" and not self.inst:HasTag("domesticated") then
         self.tasks.animation_watcher = self.inst:DoPeriodicTask(self:NextAnimTime() or 0, AnimationWatchdog, 0, self)
     end
@@ -433,11 +428,34 @@ function BeefaloTracker:OnPerformedSuccessDirty(player)
             self:SyncObedience({ highest = 0.49 })
         end
 
-        if action == ACTIONS.DROP and item == self.inst.replica.follower:GetLeader() then
+        -- Can't be sure it he hit us or not
+        if action == ACTIONS.SADDLE and not is_success then
+            print("BCS: beefalo refused saddling")
+            self:SyncObedience({ highest = TUNING.BEEFALO_SADDLEABLE_OBEDIENCE })
+        end
+
+        if
+            (action == ACTIONS.DROP and item == self.inst.replica.follower:GetLeader())
+            or (action == ACTIONS.GIVE and not self:IsCurrentBeefalo())
+        then
             print("BCS: dropped bell")
             self:UnHookPlayer()
         end
     end)
+end
+
+function BeefaloTracker:GetDomesticationFromRideTime(dt)
+    local domestication_mult = 1
+    if self.player.components.skilltreeupdater:HasSkillTag("beefalodomestication") then
+        domestication_mult = domestication_mult * TUNING.SKILLS.WATHGRITHR.WATHGRITHRHAT_BEEFALO_DOMESTICATION_MOD
+    end
+    -- It's unreliable if domestication tick happens after or before, but better be on the lower side
+    local domestication_during_ride = TUNING.BEEFALO_DOMESTICATION_GAIN_DOMESTICATION
+        * domestication_mult
+        * math.max(dt - DELTA_TASK_PERIOD, 0)
+    local ride_real = dt / self:GetRideMult()
+    local calculated_domestication = Remap(ride_real, TUNING.BEEFALO_MIN_BUCK_TIME, TUNING.BEEFALO_MAX_BUCK_TIME, 0, 1)
+    return calculated_domestication + domestication_during_ride
 end
 
 function BeefaloTracker:OnIsRidingDirty(player)
@@ -453,10 +471,8 @@ function BeefaloTracker:OnIsRidingDirty(player)
                 end
 
                 local end_ride = GetServerTime()
-                local mult = self:GetRideMult()
-                local ride_time = (end_ride - self.start_ride) / mult
-                local calculated_domestication =
-                    Remap(ride_time, TUNING.BEEFALO_MIN_BUCK_TIME, TUNING.BEEFALO_MAX_BUCK_TIME, 0, 1)
+                local dt = end_ride - self.start_ride
+                local calculated_domestication = self:GetDomesticationFromRideTime(dt)
                 print("BCS: calculated domestication: " .. tostring(calculated_domestication))
                 -- allow for some error
                 if math.abs(self.domestication - calculated_domestication) > 0.01 then
@@ -579,7 +595,9 @@ function BeefaloTracker:UnHookPlayer()
         self.isperformactionsuccessdirty_fn = nil
     end
 
-    self.ui:Hide()
+    if self.ui ~= nil then
+        self.ui:Hide()
+    end
     self.ui = nil
     self.player = nil
 

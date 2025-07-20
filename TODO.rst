@@ -17,16 +17,10 @@ TODO
 - [ ] salt lick pausing domestication `#beefalo_tracker`_
     - [ ] probably on unhook
     - A way to cancel it if we see another player on our beefalo?
+- [ ] bring back active item tracking to also check animation for feeding
 
 IN PROGRESS
 ===========
-- [ ] Test cases:
-    - [ ] Picking up bonded bell of dead beefalo
-    - [x] Generally check what happens when we unbond-rebond the bell - seems like nothing
-    - [ ] Spawn closer to not-our beefalo than our beefalo
-    - [x] Dropping a bell into wormhole (may not trigger unhook because unload?)
-    - [x] Check conditions for OnSave and OnRemoveFromEntity
-    - [x] Load after rollback, will probably need to detect that - WONTFIX
 
 
 DONE
@@ -50,6 +44,17 @@ DONE
     - we need a way to check for vomiting/farting, maybe even begging?
     - I think we should do like an animation watcher that's constantly running, that'll be much easier
 - [x] Probably need to also not save if it's just default stats?
+- [x] Add interface appearing on bonding, it's too much of a friction point.
+- [x] Check for unbounding a beefalo
+- [x] Add UI settings, adjust for 1080 as base.
+- [x] Test cases:
+    - [x] Generally check what happens when we unbond-rebond the bell - seems like nothing
+    - [x] Spawn closer to not-our beefalo than our beefalo
+    - [x] Dropping a bell into wormhole (may not trigger unhook because unload?)
+    - [x] Check conditions for OnSave and OnRemoveFromEntity
+    - [x] Load after rollback, will probably need to detect that - WONTFIX
+    - [x] Picking up bonded bell of dead beefalo
+    - [x] Giving to wormholes doesn't work. On giving rescan if held by.
 
 
 .. _#ui: #ui

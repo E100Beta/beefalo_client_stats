@@ -33,24 +33,16 @@ local function UpdateTimer(_, self)
     self.timer:SetPercent(self.timer.val, self.timer.max)
 end
 
-local BeefaloStatusDisplays = Class(Widget, function(self, owner)
+local BeefaloStatusDisplays = Class(Widget, function(self, owner, ui_scale, distance_scale, parent)
     Widget._ctor(self, "BeefaloStatus")
     self:UpdateWhilePaused(false)
     self.owner = owner
-
-    -- Yellow is already a color of hunger, this one is just tinted to be in line with other colors
-    self.hunger = self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.YELLOW, nil, nil, true, true, nil, nil))
-    self.hunger:SetPosition(-50, -30, 0)
-    self.hunger.icon:SetTexture(GetInventoryItemAtlas("beefalofeed.tex"), "beefalofeed.tex")
-    self.hunger.icon:SetScale(0.8)
-    self.on_hunger_change_fn = function(self, data)
-        self.hunger:SetPercent(data.new / TUNING.BEEFALO_HUNGER, TUNING.BEEFALO_HUNGER)
-    end
+    self.parent = parent
 
     -- When I google domestication, google likes giving me farm animals on green pastures
     self.domestication =
-        self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.GREEN, nil, nil, true, true, nil, nil))
-    self.domestication:SetPosition(0, 10, 0)
+        self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.GREEN, nil, nil, true, true, nil, nil, ui_scale))
+    self.domestication:SetPosition(self.parent.column3 * distance_scale, 20 * distance_scale, 0)
     self.domestication.icon:SetTexture(GetInventoryItemAtlas("brush.tex"), "brush.tex")
     self.owner:ListenForEvent("bcs_domesticationdelta", function(_, data, widget)
         widget:SetPercent(data.new, 100)
@@ -58,15 +50,28 @@ local BeefaloStatusDisplays = Class(Widget, function(self, owner)
     self.on_domestication_change_fn = function(self, data)
         if data.new == 1 then
             self.domestication:Hide()
+        else
+            self.domestication:Show()
         end
         self.domestication:SetPercent(data.new, 100)
         self.domestication.num:SetString(string.format("%.1f", data.new * 100))
     end
 
+    -- Yellow is already a color of hunger, this one is just tinted to be in line with other colors
+    self.hunger =
+        self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.YELLOW, nil, nil, true, true, nil, nil, ui_scale))
+    self.hunger:SetPosition(self.parent.column2 * distance_scale, -40 * distance_scale, 0)
+    self.hunger.icon:SetTexture(GetInventoryItemAtlas("beefalofeed.tex"), "beefalofeed.tex")
+    self.hunger.icon:SetScale(0.8)
+    self.on_hunger_change_fn = function(self, data)
+        self.hunger:SetPercent(data.new / TUNING.BEEFALO_HUNGER, TUNING.BEEFALO_HUNGER)
+    end
+
     -- If you google obedience, you may find a LOT of images with brown backgrounds, for some reason
     -- BTW why do all other mods put whip here? Nothing in the game requires us to whip a beefalo
-    self.obedience = self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.BROWN, nil, nil, true, true, nil, nil))
-    self.obedience:SetPosition(50, -30, 0)
+    self.obedience =
+        self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.BROWN, nil, nil, true, true, nil, nil, ui_scale))
+    self.obedience:SetPosition(self.parent.column4 * distance_scale, -40 * distance_scale, 0)
     self.obedience.icon:SetTexture(GetInventoryItemAtlas("beef_bell.tex"), "beef_bell.tex")
     self.owner:ListenForEvent("bcs_obediencedelta", function(_, data, widget)
         widget:SetPercent(data.new, 100)
@@ -76,8 +81,9 @@ local BeefaloStatusDisplays = Class(Widget, function(self, owner)
     end
 
     -- riding => speed => sonic => blue
-    self.timer = self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.BLUE, nil, true, true, true, nil, true))
-    self.timer:SetPosition(0, -70, 0)
+    self.timer =
+        self:AddChild(BeefaloBadge(nil, self.owner, BADGE_COLORS.BLUE, nil, true, true, true, nil, true, ui_scale))
+    self.timer:SetPosition(self.parent.column1 * distance_scale, 20 * distance_scale, 0)
     self.timer.icon:SetTexture(GetInventoryItemAtlas("saddle_basic.tex"), "saddle_basic.tex")
     self.timer.num:SetScale(0.9)
     -- A bit of hacking to make a pretty display for timer
@@ -92,6 +98,11 @@ local BeefaloStatusDisplays = Class(Widget, function(self, owner)
             self.timer:SetPercent(data.ridetime, data.ridetime)
             if self.timer.timer_task == nil then
                 self.timer.timer_task = self.inst:DoPeriodicTask(1, UpdateTimer, 0, self)
+            end
+            if self.domestication.shown then
+                self.timer:SetPosition(self.parent.column1 * distance_scale, 20 * distance_scale, 0)
+            else
+                self.timer:SetPosition(self.parent.column3 * distance_scale, 20 * distance_scale, 0)
             end
             self.timer:Show()
         else
