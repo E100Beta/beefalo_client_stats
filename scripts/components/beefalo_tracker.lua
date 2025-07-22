@@ -589,10 +589,12 @@ function BeefaloTracker:UnHookPlayer()
     end
 
     if self.isperformactionsuccessdirty_fn ~= nil then
-        self.player.player_classified:RemoveEventCallback(
-            "isperformactionsuccessdirty",
-            self.isperformactionsuccessdirty_fn
-        )
+        if self.player.player_classified ~= nil then
+            self.player.player_classified:RemoveEventCallback(
+                "isperformactionsuccessdirty",
+                self.isperformactionsuccessdirty_fn
+            )
+        end
         self.isperformactionsuccessdirty_fn = nil
     end
 
