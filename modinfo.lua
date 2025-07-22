@@ -14,7 +14,7 @@ Tracking stops after completing domestication, unless beefalo is Ornery.
 Ornery still needs Obedience management (this was mod's original goal).
 ]]
 author = "E100"
-version = "0.1.0"
+version = "0.1.2"
 forumthread = ""
 icon_atlas = "icon.xml"
 icon = "icon.tex"

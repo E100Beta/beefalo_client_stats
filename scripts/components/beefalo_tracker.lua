@@ -104,7 +104,7 @@ end
 
 function BeefaloTracker:GetFileName()
     return "BCS_"
-        .. (TheNet:GetSessionIdentifier() or "INVALID_SESSION")
+        .. make_safe(TheNet and TheNet:GetServerListing() and TheNet:GetServerListing().name or "NONE")
         .. "_"
         .. (TheNet:GetUserID() or "INVALID_USERID")
         .. "_"
