@@ -97,7 +97,9 @@ local BeefaloTracker = Class(function(self, inst)
 end)
 
 function BeefaloTracker:OnRemoveEntity()
-    self:UnHookPlayer()
+    if self.player ~= nil then
+        self:UnHookPlayer()
+    end
 end
 
 function BeefaloTracker:GetFileName()
@@ -261,7 +263,7 @@ function BeefaloTracker:GetLowest(stat)
     if stat == "hunger" then
         return 0
     elseif stat == "domestication" then
-        if self.inst:HasTag("domesticated") then
+        if self.inst:HasTag("domesticated") and (self.config ~= nil and not self.config.track_domesticated) then
             return 1
         else
             return 0
@@ -391,9 +393,8 @@ function BeefaloTracker:CheckAnimationAfterFeed()
 end
 
 function BeefaloTracker:OnPerformedSuccessDirty(player)
-    -- NOTE: sometimes lastheldaction doesn't reset for a long time
+    -- NOTE: sometimes lastheldaction doesn't reset for a long time or disappears too fast
     local last_action = player.components.playercontroller.lastheldaction
-    print("BCS: last_action: " .. tostring(last_action ~= nil and last_action.action.id or nil))
     if last_action == nil then
         return
     end
@@ -452,7 +453,7 @@ function BeefaloTracker:GetDomesticationFromRideTime(dt)
     -- It's unreliable if domestication tick happens after or before, but better be on the lower side
     local domestication_during_ride = TUNING.BEEFALO_DOMESTICATION_GAIN_DOMESTICATION
         * domestication_mult
-        * math.max(dt - DELTA_TASK_PERIOD, 0)
+        * math.max(dt - DELTA_TASK_PERIOD * 2, 0)
     local ride_real = dt / self:GetRideMult()
     local calculated_domestication = Remap(ride_real, TUNING.BEEFALO_MIN_BUCK_TIME, TUNING.BEEFALO_MAX_BUCK_TIME, 0, 1)
     return calculated_domestication + domestication_during_ride
@@ -595,14 +596,14 @@ function BeefaloTracker:UnHookPlayer()
         self.isperformactionsuccessdirty_fn = nil
     end
 
+    self:CancelTask()
+    self:OnSave()
+
     if self.ui ~= nil then
         self.ui:Hide()
     end
     self.ui = nil
     self.player = nil
-
-    self:CancelTask()
-    self:OnSave()
 end
 
 return BeefaloTracker

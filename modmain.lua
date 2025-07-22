@@ -9,6 +9,7 @@ end
 CONFIG = {
     ui_show = GetModConfigData("UI_SHOW"),
     animation_tracking = GetModConfigData("ANIMATION_TRACKING"),
+    track_domesticated = GetModConfigData("TRACK_DOMESTICATED"),
     x = GetModConfigData("X"),
     y = GetModConfigData("Y"),
     scale = GetModConfigData("SCALE"),
