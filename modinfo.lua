@@ -28,13 +28,9 @@ api_version = 10
 
 local function coordinates(from, to, step, description)
     local t = {}
-    local i = 0 -- table.insert unavailable
+    local i = 0
     for j = from, to, step do
-        local row = { data = j, description = "" .. j }
-        if description ~= nil then
-            row["hover"] = description
-        end
-        t[i] = row
+        t[i] = { data = j, description = j, hover = description }
         i = i + 1
     end
     return t
@@ -98,17 +94,38 @@ configuration_options = {
     {
         name = "X",
         default = 0,
-        options = coordinates(-200, 200, 10, "Relative to player stats HUD"),
+        options = coordinates(-300, 100, 10, "Relative to player stats HUD"),
     },
     {
         name = "Y",
-        default = -170,
-        options = coordinates(-200, 200, 10, "Relative to player stats HUD"),
+        default = -190,
+        options = coordinates(-300, 100, 10, "Relative to player stats HUD"),
     },
     {
         name = "SCALE",
         label = "UI Scale",
-        default = 1,
-        options = coordinates(0.1, 2, 0.1),
+        default = 1.0,
+        options = {
+            { data = 0.1, description = "0.1" },
+            { data = 0.2, description = "0.2" },
+            { data = 0.3, description = "0.3" },
+            { data = 0.4, description = "0.4" },
+            { data = 0.5, description = "0.5" },
+            { data = 0.6, description = "0.6" },
+            { data = 0.7, description = "0.7" },
+            { data = 0.8, description = "0.8" },
+            { data = 0.9, description = "0.9" },
+            { data = 1.0, description = "1.0" },
+            { data = 1.1, description = "1.1" },
+            { data = 1.2, description = "1.2" },
+            { data = 1.3, description = "1.3" },
+            { data = 1.4, description = "1.4" },
+            { data = 1.5, description = "1.5" },
+            { data = 1.6, description = "1.6" },
+            { data = 1.7, description = "1.7" },
+            { data = 1.8, description = "1.8" },
+            { data = 1.9, description = "1.9" },
+            { data = 2.0, description = "2.0" },
+        },
     },
 }
