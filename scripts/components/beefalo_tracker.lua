@@ -102,9 +102,19 @@ function BeefaloTracker:OnRemoveEntity()
     end
 end
 
-function BeefaloTracker:GetFileName()
+-- For smoother deprecation
+function BeefaloTracker:GetOldFileName()
     return "BCS_"
         .. make_safe(TheNet and TheNet:GetServerListing() and TheNet:GetServerListing().name or "NONE")
+        .. "_"
+        .. (TheNet:GetUserID() or "INVALID_USERID")
+        .. "_"
+        .. make_safe(self.inst.name)
+end
+
+function BeefaloTracker:GetFileName()
+    return "BCS_"
+        .. (TheWorld and TheWorld.net and TheWorld.net.components.shardstate and TheWorld.net.components.shardstate:GetMasterSessionId() or "INVALID_SESSION")
         .. "_"
         .. (TheNet:GetUserID() or "INVALID_USERID")
         .. "_"
@@ -132,10 +142,16 @@ function BeefaloTracker:OnSave()
         }
         local str = json.encode(data)
         TheSim:SetPersistentString(self:GetFileName(), str, false)
+        TheSim:ErasePersistentString(self:GetOldFileName(), function(success)
+            if success then
+                print("BCS: deleted old save file format")
+            end
+        end)
     end
 end
 
 function BeefaloTracker:OnLoad()
+    local success = true
     TheSim:GetPersistentString(self:GetFileName(), function(success, str)
         if success and str ~= nil then
             local data = json.decode(str)
@@ -145,7 +161,20 @@ function BeefaloTracker:OnLoad()
             self.last_domestication_gain = data.last_domestication_gain
             self.last_update = data.last_update
         end
+        local success = success
     end)
+    if not success then
+        TheSim:GetPersistentString(self:GetOldFileName(), function(success, str)
+            if success and str ~= nil then
+                local data = json.decode(str)
+                self.hunger = data.hunger
+                self.obedience = data.obedience
+                self.domestication = data.domestication
+                self.last_domestication_gain = data.last_domestication_gain
+                self.last_update = data.last_update
+            end
+        end)
+    end
 end
 
 function BeefaloTracker:SetConfig(config)
