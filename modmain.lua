@@ -68,17 +68,18 @@ local function TrackBellBonding(player_classified)
 end
 
 AddPlayerPostInit(function(player)
-    player:ListenForEvent("itemget", OnItemGet)
-
     player:DoTaskInTime(0, function(inst)
-        inst.player_classified:ListenForEvent("isperformactionsuccessdirty", TrackBellBonding)
+        if inst == GLOBAL.ThePlayer then
+            inst:ListenForEvent("itemget", OnItemGet)
+            inst.player_classified:ListenForEvent("isperformactionsuccessdirty", TrackBellBonding)
 
-        local bell = inst.replica.inventory:FindItem(function(v)
-            return v:HasTags(LINKED_BELL_TAGS)
-        end)
-        print("BCS: found bell in inventory: " .. tostring(bell))
-        if bell ~= nil then
-            OnItemGet(inst, { item = bell })
+            local bell = inst.replica.inventory:FindItem(function(v)
+                return v:HasTags(LINKED_BELL_TAGS)
+            end)
+            print("BCS: found bell in inventory: " .. tostring(bell))
+            if bell ~= nil then
+                OnItemGet(inst, { item = bell })
+            end
         end
     end)
 end)
